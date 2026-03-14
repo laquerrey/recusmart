@@ -709,9 +709,13 @@ async function analyzeReceiptWithAI(file) {
   const base64 = await fileToBase64(file);
   const base64Data = base64.split(',')[1];
   try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+
     const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
       body: JSON.stringify({
         contents: [{
           parts: [
@@ -734,10 +738,12 @@ Exemple de réponse:
       })
     });
 
+    clearTimeout(timeout);
+
     if(!response.ok) {
       const errText = await response.text();
       console.error('Gemini API error:', response.status, errText);
-      throw new Error('API erreur ' + response.status);
+      throw new Error('API erreur ' + response.status + ': ' + errText.slice(0,100));
     }
 
     const data = await response.json();
@@ -753,6 +759,7 @@ Exemple de réponse:
 
   } catch(e) {
     console.error('Gemini error:', e.message);
+    const errorMsg = e.name === 'AbortError' ? 'Timeout — remplissez manuellement' : e.message;
     return {
       merchant: '',
       date: new Date().toISOString().slice(0,10),
@@ -760,7 +767,7 @@ Exemple de réponse:
       tax: 0,
       category: 'Autre',
       items: [],
-      _error: e.message
+      _error: errorMsg
     };
   }
 }
