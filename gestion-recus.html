@@ -660,43 +660,47 @@ async function processFile(file) {
     <div><span class="status-badge status-proc" id="st_${itemId}">⚙ Analyse IA</span></div>
     <div><div class="progress-bar"><div class="progress-fill" id="pb_${itemId}" style="width:0%"></div></div></div>
     <div style="font-family:var(--mono);font-size:.72rem;color:var(--text3)" id="am_${itemId}">—</div>
-    <div><button class="btn-action" onclick="openModal('${itemId}')">Voir</button></div>`;
+    <div><button class="btn-action" id="voir_${itemId}" onclick="openModal('${itemId}')">Voir</button></div>`;
   queueList.prepend(el);
 
-  // Animate progress
   const pb = document.getElementById('pb_'+itemId);
   let prog = 0;
   const interval = setInterval(() => {
-    prog += Math.random() * 25;
-    if(prog > 90) { prog = 90; clearInterval(interval); }
+    prog += Math.random() * 15;
+    if(prog > 85) { prog = 85; clearInterval(interval); }
     pb.style.width = prog + '%';
-  }, 200);
+  }, 300);
 
-  // Create preview URL
   const previewUrl = URL.createObjectURL(file);
 
-  // If image, do real AI analysis
+  // Force timeout after 25 seconds no matter what
+  const timeoutPromise = new Promise(resolve => 
+    setTimeout(() => resolve({ merchant:'', date: new Date().toISOString().slice(0,10), amount:0, tax:0, category:'Autre', items:[], _error:'Délai dépassé — remplissez manuellement' }), 25000)
+  );
+
   let analysisData;
-  if(file.type.startsWith('image/')) {
-    analysisData = await analyzeReceiptWithAI(file);
-  } else {
-    // For PDFs, use simulated data
-    analysisData = simulateAnalysis(file.name);
+  try {
+    analysisData = await Promise.race([
+      analyzeReceiptWithAI(file),
+      timeoutPromise
+    ]);
+  } catch(e) {
+    analysisData = { merchant:'', date: new Date().toISOString().slice(0,10), amount:0, tax:0, category:'Autre', items:[], _error: e.message };
   }
 
   clearInterval(interval);
   pb.style.width = '100%';
 
   const fn = generateFilename(analysisData);
-  document.getElementById('fn_'+itemId).textContent = fn;
-  document.getElementById('am_'+itemId).textContent = analysisData.amount.toFixed(2) + ' $';
-  document.getElementById('st_'+itemId).className = 'status-badge status-done';
-  document.getElementById('st_'+itemId).textContent = '✓ Prêt';
+  document.getElementById('fn_'+itemId).textContent = analysisData.merchant || 'À compléter';
+  document.getElementById('am_'+itemId).textContent = analysisData.amount > 0 ? analysisData.amount.toFixed(2)+' $' : '—';
+  const stEl = document.getElementById('st_'+itemId);
+  stEl.className = analysisData._error ? 'status-badge status-wait' : 'status-badge status-done';
+  stEl.textContent = analysisData._error ? '⚠ Manuel' : '✓ Prêt';
 
   pendingReceipt = { ...analysisData, filename: fn, originalName: file.name, queueItemId: itemId, previewUrl };
   openModal(itemId, pendingReceipt);
 
-  // Upload original file to Drive if connected
   if(googleAccessToken) uploadToDrive(file, fn, itemId);
 }
 
